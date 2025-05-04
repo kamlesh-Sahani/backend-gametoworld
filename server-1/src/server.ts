@@ -2,7 +2,7 @@ import express from "express";
 import http from "http";
 import socketInit from "./utils/socket.util.js";
 import { config } from "dotenv";
-import { initNumberGame } from "./events/the08paradox.event.js";
+import { initThe08Paradox } from "./events/the08paradox.event.js";
 import cors from "cors"
 config();
 // env variables 
@@ -19,7 +19,7 @@ cors({
     origin:FRONTEND_URL
 })
 socketInit(server);
-initNumberGame();
+initThe08Paradox();
 app.get("/",(req,res)=>{
      res.json({
         message:"welcome to gametoworld server1"
