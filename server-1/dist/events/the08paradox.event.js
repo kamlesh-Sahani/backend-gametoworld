@@ -243,8 +243,8 @@ export const initThe08Paradox = () => {
         });
         socket.on("startGame", ({ gameId, playerId }, callback) => {
             const game = activeGames.get(gameId);
-            const isOwner = game?.players[playerId];
-            if (!isOwner) {
+            const player = game?.players[playerId];
+            if (!player?.isHost) {
                 callback({ error: "your are not the owner" });
                 return;
             }
