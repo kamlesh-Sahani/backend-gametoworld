@@ -2,7 +2,7 @@ import { getIO } from "../utils/socket.util.js";
 export const initThe08Paradox = () => {
     const io = getIO();
     const activeGames = new Map();
-    const ROUND_DURATION = 59; // seconds
+    const ROUND_DURATION = 10; // seconds
     let MAX_ROUNDS = 5;
     const WIN_SCORE = 3;
     const LOSE_SCORE = -3;
@@ -29,14 +29,11 @@ export const initThe08Paradox = () => {
         game.status = "finished";
         // Set null for players who didn't submit in time
         Object.values(game.players).forEach((player) => {
-            if (player.number === null) {
+            if (!player.number) {
                 player.number = 0; // Consider 0 as automatic choice if not submitted
             }
         });
-        // Calculate results
-        const numbers = Object.values(game.players)
-            .filter((p) => !p.isEliminated)
-            .map((p) => p.number);
+        const numbers = Object.values(game.players).map((p) => p.number);
         if (numbers.length === 0)
             return;
         const average = numbers.reduce((a, b) => a + b, 0) / numbers.length;
@@ -66,9 +63,17 @@ export const initThe08Paradox = () => {
             }
             else {
                 player.score += LOSE_SCORE;
-                player.isEliminated = true;
             }
         });
+        // Store round result in history
+        const roundResult = {
+            round: game.round,
+            average,
+            target,
+            winner,
+            players: JSON.parse(JSON.stringify(Object.values(game.players))), // Deep copy
+        };
+        game.roundHistory.push(roundResult);
         // Send results to all players
         io.to(gameId).emit("roundResult", {
             average,
@@ -121,6 +126,7 @@ export const initThe08Paradox = () => {
         io.to(gameId).emit("gameOver", {
             winners: finalWinners[0],
             players: Object.values(game.players),
+            roundHistory: game.roundHistory, // Send all rounds' results
         });
         // Clean up after delay
         setTimeout(() => {
@@ -128,24 +134,28 @@ export const initThe08Paradox = () => {
         }, 30000); // Keep game data for 30 seconds after ending
     };
     const generateGameId = () => {
-        return Math.floor(1000 + Math.random() * 9000).toString();
+        const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluded easily confused chars (0,1,I,O)
+        let result = '';
+        for (let i = 0; i < 4; i++) {
+            result += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        return result;
     };
     io.on("connection", (socket) => {
         socket.on("createGame", ({ playerName, rounds = 5 }, callback) => {
             let gameId = generateGameId();
-            // Prevent duplicate game IDs (extremely unlikely with 4 digits)
             if (activeGames.has(gameId)) {
                 callback({ error: "Failed to create game. Please try again." });
                 return;
             }
             MAX_ROUNDS = rounds;
-            //|| Math.max(1, Math.min(10, rounds));
             activeGames.set(gameId, {
                 players: {},
                 status: "waiting",
                 round: 0,
                 countdown: 0,
                 timer: null,
+                roundHistory: [], // Initialize round history
             });
             // Join the creator to the game
             socket.join(gameId);
@@ -164,9 +174,8 @@ export const initThe08Paradox = () => {
             // Notify the creator that they've joined
             io.to(gameId).emit("updatePlayers", Object.values(game.players));
         });
-        // Create or join a game room
         socket.on("joinGame", ({ gameId, playerName = "unknown" }, callback) => {
-            const game = activeGames.get(gameId); // Remove 'as GameType' - it was causing issues
+            const game = activeGames.get(gameId);
             if (!game) {
                 callback({ error: "Game not found" });
                 return;
@@ -187,9 +196,8 @@ export const initThe08Paradox = () => {
                 number: null,
                 score: 0,
                 isEliminated: false,
-                isHost: false
+                isHost: false,
             };
-            console.log(game, "game");
             callback({ gameId });
             io.to(gameId).emit("updatePlayers", Object.values(game.players));
         });
@@ -210,11 +218,25 @@ export const initThe08Paradox = () => {
                 player: currentPlayer,
             });
         });
-        socket.on("submitNumber", ({ gameId, number }) => {
+        // New endpoint to get all rounds' results
+        socket.on("getRoundHistory", ({ gameId }, callback) => {
+            const game = activeGames.get(gameId);
+            if (!game) {
+                callback({ error: "Game not found", success: false });
+                return;
+            }
+            callback({
+                success: true,
+                roundHistory: game.roundHistory,
+                currentRound: game.round,
+                gameStatus: game.status,
+            });
+        });
+        socket.on("submitNumber", ({ gameId, number, playerId }) => {
             const game = activeGames.get(gameId);
             if (!game || game.status !== "counting")
                 return;
-            const player = game.players[socket.id];
+            const player = game.players[playerId];
             if (player && !player.isEliminated) {
                 player.number = number;
             }
