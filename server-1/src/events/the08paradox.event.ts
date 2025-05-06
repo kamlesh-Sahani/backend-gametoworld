@@ -21,7 +21,7 @@ interface GameType {
 export const initThe08Paradox = () => {
   const io = getIO();
   const activeGames = new Map<string, GameType>();
-  const ROUND_DURATION = 59; // seconds
+  const ROUND_DURATION = 10; // seconds
   let MAX_ROUNDS = 5;
   const WIN_SCORE = 3;
   const LOSE_SCORE = -3;
@@ -66,7 +66,7 @@ export const initThe08Paradox = () => {
     if (numbers.length === 0) return;
 
     const average = numbers.reduce((a, b) => a + b, 0) / numbers.length;
-    const target = average * 0.8;
+    const target = Math.floor(average * 0.8);
 
     // Find the winner (closest number ≤ target)
     let winner: PlayerType | null = null;
@@ -75,8 +75,9 @@ export const initThe08Paradox = () => {
     Object.values(game.players).forEach((player) => {
       if (player.isEliminated) return;
 
-      const diff = target - (player.number as number);
-      if (diff >= 0 && diff < minDiff) {
+      let diff = target - (player.number as number);
+      diff = diff > 0 ? diff : -diff;
+      if (diff < minDiff) {
         minDiff = diff;
         winner = player;
       }
@@ -99,20 +100,18 @@ export const initThe08Paradox = () => {
     });
 
     // Send results to all players
+
     io.to(gameId).emit("roundResult", {
       average,
       target,
       winner,
-      players: game.players,
+      players: Object.values(game.players),
       round: game.round,
     });
 
     // Prepare for next round or end game
     setTimeout(() => {
-      if (
-        game.round >= MAX_ROUNDS ||
-        Object.values(game.players).filter((p) => !p.isEliminated).length <= 1
-      ) {
+      if (game.round >= MAX_ROUNDS) {
         endGame(gameId);
       } else {
         startNewRound(gameId);
@@ -122,6 +121,7 @@ export const initThe08Paradox = () => {
 
   const startNewRound = (gameId: string) => {
     const game = activeGames.get(gameId);
+
     if (!game) return;
 
     game.round++;
@@ -139,7 +139,7 @@ export const initThe08Paradox = () => {
 
     io.to(gameId).emit("newRound", {
       round: game.round,
-      players: game.players,
+      players: Object.values(game.players),
     });
 
     startCountdown(gameId);
@@ -160,8 +160,8 @@ export const initThe08Paradox = () => {
     );
 
     io.to(gameId).emit("gameOver", {
-      winners: finalWinners,
-      players: game.players,
+      winners: finalWinners[0],
+      players: Object.values(game.players),
     });
 
     // Clean up after delay
@@ -184,15 +184,15 @@ export const initThe08Paradox = () => {
         return;
       }
 
-
-      MAX_ROUNDS = Math.max(1, Math.min(10, rounds));
-        activeGames.set(gameId, {
-          players: {},
-          status: "waiting",
-          round: 0,
-          countdown: 0,
-          timer: null,
-        });
+      MAX_ROUNDS = rounds;
+      //|| Math.max(1, Math.min(10, rounds));
+      activeGames.set(gameId, {
+        players: {},
+        status: "waiting",
+        round: 0,
+        countdown: 0,
+        timer: null,
+      });
 
       // Join the creator to the game
       socket.join(gameId);
@@ -206,8 +206,6 @@ export const initThe08Paradox = () => {
         isEliminated: false,
       };
 
-
- 
       // Return the game ID to the creator
       callback({ gameId });
 
@@ -216,14 +214,12 @@ export const initThe08Paradox = () => {
     });
 
     // Create or join a game room
-    socket.on("joinGame", ({ gameId, playerName="unknown" }, callback) => {
-        
-        const game = activeGames.get(gameId) as GameType;
-        console.log(game,"game")
 
-      // Validate game exists
+    socket.on("joinGame", ({ gameId, playerName = "unknown" }, callback) => {
+      const game = activeGames.get(gameId); // Remove 'as GameType' - it was causing issues
+
       if (!game) {
-        callback({ error: "gameId is wrong please create another game" });
+        callback({ error: "Game not found" });
         return;
       }
 
@@ -232,21 +228,14 @@ export const initThe08Paradox = () => {
         return;
       }
 
-     
-      socket.join(gameId);
-     
-
-      if (!activeGames.has(gameId)) {
-        activeGames.set(gameId, {
-          players: {},
-          status: "waiting",
-          round: 0,
-          countdown: 0,
-          timer: null,
-        });
+      // Check if player already exists
+      if (game.players[socket.id]) {
+        callback({ error: "You're already in this game" });
+        return;
       }
 
-   
+      socket.join(gameId);
+
       game.players[socket.id] = {
         playerId: socket.id,
         playerName,
@@ -254,62 +243,57 @@ export const initThe08Paradox = () => {
         score: 0,
         isEliminated: false,
       };
-    callback({ gameId });
 
+      callback({ gameId });
       io.to(gameId).emit("updatePlayers", Object.values(game.players));
+    });
+    socket.on("profile", ({ gameId, playerId }, callback) => {
+      const game = activeGames.get(gameId);
 
-      // Start game when 4 players join
-      if (Object.keys(game.players).length === 4) {
-        game.status = "playing";
-        game.round = 1;
-        io.to(gameId).emit("gameStarted");
-        startCountdown(gameId);
+      if (!game) {
+        callback({ error: "Game not found", success: false });
+        return;
       }
+
+      const currentPlayer = game.players[playerId];
+
+      if (!currentPlayer) {
+        callback({ error: "Player not found in this game", success: false });
+        return;
+      }
+
+      callback({
+        success: true,
+        gameStatus: game.status,
+        player: currentPlayer,
+      });
     });
 
-
-    socket.on("profile",({ gameId,playerId }, callback)=>{
-        const game = activeGames.get(gameId) as GameType;
-
-        // Validate game exists
-        if (!game) {
-            callback({ error: "gameId is wrong please create another game" });
-          return;
-        }
-       const currentPlayer =  game.players.filter((p)=>p.playerId===playerId);
-       console.log(currentPlayer,"current player")
-       if(currentPlayer.length<=0){
-        callback({ error: "player is not  found",success:false });
-       }
-  
-        if (game.status !== "waiting") {
-          callback({ error: "Game has already started" });
-          return;
-        }
-
-        callback({ game:game });
-
-    })
-    // Handle number submission
     socket.on("submitNumber", ({ gameId, number }) => {
       const game = activeGames.get(gameId);
-      if (!game || game.status !== "playing") return;
+      if (!game || game.status !== "counting") return;
 
       const player = game.players[socket.id];
       if (player && !player.isEliminated) {
-        player.number = Math.max(1, Math.min(100, number)); // Ensure number is between 1-100
-        io.to(gameId).emit("playerSubmitted", { playerId: socket.id });
-
-        // Check if all active players submitted
-        const allSubmitted = Object.values(game.players)
-          .filter((p) => !p.isEliminated)
-          .every((p) => p.number !== null);
-
-        if (allSubmitted) {
-          clearInterval(game.timer as NodeJS.Timeout);
-          evaluateRound(gameId);
-        }
+        player.number = number;
       }
+    });
+
+    socket.on("startGame", ({ gameId }, callback) => {
+      const game = activeGames.get(gameId);
+      if (!game) {
+        callback({ error: "game is not found" });
+        return;
+      }
+      if (Object.values(game.players).length <= 1) {
+        callback({ error: "player should be more than 1" });
+        return;
+      }
+      game.status = "playing";
+
+      game.round = 1;
+      io.to(gameId).emit("gameStarted");
+      startCountdown(gameId);
     });
 
     // Handle disconnections
