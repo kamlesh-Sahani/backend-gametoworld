@@ -156,6 +156,8 @@ export const initThe08Paradox = () => {
                 number: null,
                 score: 0,
                 isEliminated: false,
+                owner: true,
+                isHost: true,
             };
             // Return the game ID to the creator
             callback({ gameId });
@@ -185,7 +187,9 @@ export const initThe08Paradox = () => {
                 number: null,
                 score: 0,
                 isEliminated: false,
+                isHost: false
             };
+            console.log(game, "game");
             callback({ gameId });
             io.to(gameId).emit("updatePlayers", Object.values(game.players));
         });
@@ -215,8 +219,13 @@ export const initThe08Paradox = () => {
                 player.number = number;
             }
         });
-        socket.on("startGame", ({ gameId }, callback) => {
+        socket.on("startGame", ({ gameId, playerId }, callback) => {
             const game = activeGames.get(gameId);
+            const isOwner = game?.players[playerId];
+            if (!isOwner) {
+                callback({ error: "your are not the owner" });
+                return;
+            }
             if (!game) {
                 callback({ error: "game is not found" });
                 return;
