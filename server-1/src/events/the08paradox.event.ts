@@ -333,7 +333,6 @@ export const initThe08Paradox = () => {
         return;
       }
       game.status = "playing";
-
       game.round = 1;
       io.to(gameId).emit("gameStarted");
       startCountdown(gameId);
