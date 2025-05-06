@@ -21,7 +21,7 @@ interface GameType {
 export const initThe08Paradox = () => {
   const io = getIO();
   const activeGames = new Map<string, GameType>();
-  const ROUND_DURATION = 10; // seconds
+  const ROUND_DURATION = 59; // seconds
   let MAX_ROUNDS = 5;
   const WIN_SCORE = 3;
   const LOSE_SCORE = -3;
